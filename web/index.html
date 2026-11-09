@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArenaForge · Esports Tournament Manager</title>
+<meta name="description" content="Seed teams by rating and run a knockout tournament, powered by a C++ engine compiled to WebAssembly.">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f4f5fa; --panel: #ffffff; --ink: #14161f; --muted: #626880; --line: #dfe2ee;
+  --accent: #4f3be0; --accent-ink: #ffffff; --accent-soft: #ecebff;
+  --win: #0f7a56; --win-bg: #def5ea; --lost: #8a90a6;
+  --warn: #8a4b00; --warn-bg: #fff1dc; --err: #b3202e; --err-bg: #fde8ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1016; --panel: #171a24; --ink: #eceef7; --muted: #9ba1b8; --line: #2a2f40;
+    --accent: #9a8cff; --accent-ink: #0e1016; --accent-soft: #232042;
+    --win: #55d9a6; --win-bg: #11332a; --lost: #646b82;
+    --warn: #ffb860; --warn-bg: #33250e; --err: #ff8791; --err-bg: #3a1a1e;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
+h1 span { color: var(--accent); }
+h1 small { font-weight: 400; color: var(--muted); font-size: 0.6em; }
+h2 { margin: 0 0 12px; font-size: 1.05rem; }
+h3 { margin: 0 0 8px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.badge.ok { color: var(--win); border-color: var(--win); }
+.badge.err { color: var(--err); border-color: var(--err); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.grid { display: grid; gap: 16px; grid-template-columns: 1fr; margin-bottom: 16px; }
+.grid .panel { margin-bottom: 0; }
+@media (min-width: 860px) { .grid { grid-template-columns: 1fr 1fr; } }
+.notice { border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+.notice.err { background: var(--err-bg); color: var(--err); }
+.notice code { background: rgba(127,127,127,.18); padding: 1px 5px; border-radius: 4px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+input, select {
+  font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0;
+}
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#teamName { width: 200px; max-width: 100%; } #teamRating { width: 100px; }
+.btn {
+  font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+}
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { padding: 2px 10px; font-size: 0.8rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.hint { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; }
+.msg { min-height: 1.4em; font-size: 0.85rem; margin: 8px 0 0; color: var(--err); }
+table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.out td { color: var(--lost); }
+.tag { font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.tag.champ { background: var(--win-bg); color: var(--win); font-weight: 700; }
+.empty { color: var(--muted); margin: 0; }
+.champion { background: var(--win-bg); color: var(--win); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; font-weight: 600; }
+.scroll { overflow-x: auto; padding-bottom: 6px; }
+.rounds { display: flex; gap: 20px; align-items: stretch; min-width: min-content; }
+.round { display: flex; flex-direction: column; justify-content: space-around; gap: 12px; min-width: 230px; }
+.match { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.match.ready { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.match .cap { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); padding: 4px 10px; border-bottom: 1px solid var(--line); }
+.slot { display: flex; align-items: center; gap: 8px; padding: 7px 10px; min-height: 40px; }
+.slot + .slot { border-top: 1px solid var(--line); }
+.slot .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot .rt { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.slot.won { background: var(--win-bg); color: var(--win); font-weight: 600; }
+.slot.lost { color: var(--lost); text-decoration: line-through; }
+.slot.bye .nm, .slot.tbd .nm { color: var(--muted); font-style: italic; }
+noscript { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Arena<span>Forge</span> <small>Esports Tournament Manager</small></h1>
+    <span id="engine" class="badge" role="status">Loading engine…</span>
+  </header>
+  <noscript><div class="notice err">ArenaForge needs JavaScript and WebAssembly to run.</div></noscript>
+
+  <div id="problem"></div>
+  <div id="banner" aria-live="polite"></div>
+
+  <div class="grid">
+    <section class="panel" aria-labelledby="teamsH">
+      <h2 id="teamsH">1. Register teams</h2>
+      <form id="addForm" class="row" autocomplete="off">
+        <label>Team name <input id="teamName" maxlength="40" required></label>
+        <label>Rating <input id="teamRating" type="number" min="0" max="10000" step="any" value="1500" required></label>
+        <button class="btn" type="submit" id="addBtn">Add team</button>
+        <button class="btn ghost" type="button" id="sampleBtn">Add sample teams</button>
+      </form>
+      <p class="msg" id="msg" role="alert"></p>
+      <div id="teams"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="runH">
+      <h2 id="runH">2. Run the tournament</h2>
+      <div class="row">
+        <label>Format
+          <select id="format">
+            <option value="0" selected>Knockout</option>
+            <option value="1" disabled>Round Robin (not in the engine yet)</option>
+            <option value="2" disabled>Swiss (not in the engine yet)</option>
+          </select>
+        </label>
+        <button class="btn" type="button" id="startBtn">Start tournament</button>
+        <button class="btn ghost" type="button" id="resetBtn">Reset</button>
+      </div>
+      <p class="hint" id="status"></p>
+      <p class="hint">Teams are seeded by rating (highest first). With a non-power-of-two field, the top seeds get byes in round one.</p>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="brH">
+    <h2 id="brH">Bracket</h2>
+    <div class="scroll" id="bracket"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="stH">
+    <h2 id="stH">Standings</h2>
+    <div class="scroll" id="standings"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- tiny DOM helpers (team names are always inserted as text, never as HTML) ---------- */
+const $ = (id) => document.getElementById(id);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el[k] = v;
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids) el.append(kid);
+  return el;
+}
+
+/* ---------- engine ---------- */
+const STATUS = { REGISTRATION: 0, IN_PROGRESS: 1, COMPLETED: 2 };
+const BYE = -1;
+let Module = null;   // Emscripten module
+let sys = null;      // ArenaSystem instance living inside the C++ engine
+let state = null;    // latest parsed snapshot from sys.getStateJson()
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("could not load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function boot() {
+  const candidates = [["arena.js", "ArenaModule", "WebAssembly"], ["arena_js.js", "ArenaModuleJS", "JS fallback"]];
+  const errors = [];
+  for (const [file, factory, label] of candidates) {
+    try {
+      await loadScript(file);
+      Module = await window[factory]();
+      sys = new Module.ArenaSystem();
+      const badge = $("engine");
+      badge.textContent = "C++ engine ready (" + label + ")";
+      badge.className = "badge ok";
+      refresh();
+      return;
+    } catch (e) {
+      errors.push(file + ": " + (e && e.message ? e.message : e));
+    }
+  }
+  engineFailed(errors);
+}
+
+function engineFailed(errors) {
+  const badge = $("engine");
+  badge.textContent = "Engine not available";
+  badge.className = "badge err";
+  $("problem").replaceChildren(h("div", { class: "notice err" },
+    h("strong", {}, "The C++ engine bundle is missing or failed to load. "),
+    "Build it with Emscripten (",
+    h("code", {}, "make site"),
+    "), commit ",
+    h("code", {}, "web/arena.js"),
+    ", and redeploy. Details: " + errors.join(" · ")));
+  renderEmpty("Engine unavailable.");
+}
+
+function refresh() {
+  state = JSON.parse(sys.getStateJson());
+  render();
+}
+
+/* ---------- derived data ---------- */
+function teamMap() { return new Map(state.teams.map((t) => [t.id, t])); }
+
+function roundName(r, total) {
+  if (r === total) return "Final";
+  if (r === total - 1) return "Semifinals";
+  if (r === total - 2) return "Quarterfinals";
+  return "Round " + r;
+}
+
+function fmtRating(r) { return Number.isInteger(r) ? String(r) : r.toFixed(1); }
+
+function computeStandings() {
+  const rows = new Map(state.teams.map((t) => [t.id, { team: t, played: 0, wins: 0, losses: 0, out: false }]));
+  for (const m of state.matches) {
+    if (m.a >= 0 && m.b >= 0 && m.w >= 0) {       // a real, decided match (not a bye)
+      const loser = m.w === m.a ? m.b : m.a;
+      rows.get(m.w).wins++; rows.get(m.w).played++;
+      rows.get(loser).losses++; rows.get(loser).played++;
+      rows.get(loser).out = true;
+    }
+  }
+  return [...rows.values()].sort((x, y) =>
+    (state.champion === y.team.id) - (state.champion === x.team.id) ||
+    y.wins - x.wins || x.losses - y.losses ||
+    y.team.rating - x.team.rating || x.team.id - y.team.id);
+}
+
+/* ---------- rendering ---------- */
+function render() {
+  const started = state.status !== STATUS.REGISTRATION;
+  const running = state.status === STATUS.IN_PROGRESS;
+  const toPlay = state.matches.filter((m) => m.ready).length;
+
+  $("addBtn").disabled = started;
+  $("sampleBtn").disabled = started;
+  $("teamName").disabled = started;
+  $("teamRating").disabled = started;
+  $("startBtn").disabled = started || state.teams.length < 2;
+  $("resetBtn").disabled = false;
+  $("status").textContent =
+    state.status === STATUS.REGISTRATION
+      ? (state.teams.length < 2 ? "Register at least two teams to begin." : state.teams.length + " teams registered. Ready to start.")
+    : running
+      ? "In progress: " + toPlay + (toPlay === 1 ? " match" : " matches") + " waiting for a result."
+    : "Tournament complete.";
+
+  renderBanner();
+  renderTeams();
+  renderBracket();
+  renderStandings();
+}
+
+function renderEmpty(text) {
+  for (const id of ["teams", "bracket", "standings"]) $(id).replaceChildren(h("p", { class: "empty" }, text));
+  for (const id of ["addBtn", "sampleBtn", "startBtn", "resetBtn"]) $(id).disabled = true;
+}
+
+function renderBanner() {
+  const box = $("banner");
+  if (state.champion >= 0) {
+    box.replaceChildren(h("div", { class: "champion" }, "Champion: " + teamMap().get(state.champion).name));
+  } else {
+    box.replaceChildren();
+  }
+}
+
+function renderTeams() {
+  const box = $("teams");
+  if (!state.teams.length) {
+    box.replaceChildren(h("p", { class: "empty" }, "No teams yet. Add at least two to start a knockout."));
+    return;
+  }
+  const byId = teamMap();
+  const body = h("tbody");
+  state.seeds.forEach((id, i) => {
+    const t = byId.get(id);
+    body.append(h("tr", {}, h("td", { class: "num" }, String(i + 1)), h("td", {}, t.name), h("td", { class: "num" }, fmtRating(t.rating))));
+  });
+  box.replaceChildren(h("table", {},
+    h("thead", {}, h("tr", {}, h("th", { class: "num" }, "Seed"), h("th", {}, "Team"), h("th", { class: "num" }, "Rating"))),
+    body));
+}
+
+function slot(m, side, byId) {
+  const id = side === "a" ? m.a : m.b;
+  const from = side === "a" ? m.fromA : m.fromB;
+  const el = h("div", { class: "slot" });
+  if (id >= 0) {
+    const t = byId.get(id);
+    el.append(h("span", { class: "nm", title: t.name }, t.name), h("span", { class: "rt" }, fmtRating(t.rating)));
+    if (m.w === id) el.classList.add("won");
+    else if (m.w >= 0) el.classList.add("lost");
+    if (m.ready) {
+      el.append(h("button", {
+        class: "btn small", type: "button", "aria-label": t.name + " wins match " + m.id,
+        onclick: () => report(m.id, id),
+      }, "Win"));
+    }
+  } else if (id === BYE) {
+    el.classList.add("bye");
+    el.append(h("span", { class: "nm" }, "BYE"));
+  } else {
+    el.classList.add("tbd");
+    el.append(h("span", { class: "nm" }, from > 0 ? "Winner of match " + from : "TBD"));
+  }
+  return el;
+}
+
+function matchCard(m, byId) {
+  const isBye = m.a === BYE || m.b === BYE;
+  const note = isBye ? "Bye: advances" : m.ready ? "Pick the winner" : m.w >= 0 ? "Decided" : "Waiting";
+  return h("div", { class: "match" + (m.ready ? " ready" : "") },
+    h("div", { class: "cap" }, h("span", {}, "Match " + m.id), h("span", {}, note)),
+    slot(m, "a", byId), slot(m, "b", byId));
+}
+
+function renderBracket() {
+  const box = $("bracket");
+  if (!state.matches.length) {
+    box.replaceChildren(h("p", { class: "empty" }, "The bracket appears here once the tournament starts."));
+    return;
+  }
+  const byId = teamMap();
+  const rounds = new Map();
+  for (const m of state.matches) {
+    if (!rounds.has(m.round)) rounds.set(m.round, []);
+    rounds.get(m.round).push(m);
+  }
+  const total = Math.max(...rounds.keys());
+  const wrap = h("div", { class: "rounds" });
+  for (const [r, list] of [...rounds].sort((x, y) => x[0] - y[0])) {
+    const col = h("div", { class: "round" }, h("h3", {}, roundName(r, total)));
+    for (const m of list) col.append(matchCard(m, byId));
+    wrap.append(col);
+  }
+  box.replaceChildren(wrap);
+}
+
+function renderStandings() {
+  const box = $("standings");
+  if (!state.teams.length) { box.replaceChildren(h("p", { class: "empty" }, "No teams yet.")); return; }
+  const body = h("tbody");
+  for (const r of computeStandings()) {
+    const tag = state.champion === r.team.id ? h("span", { class: "tag champ" }, "Champion")
+      : state.status === STATUS.REGISTRATION ? h("span", { class: "tag" }, "Registered")
+      : r.out ? h("span", { class: "tag" }, "Eliminated")
+      : h("span", { class: "tag" }, "Still in");
+    body.append(h("tr", { class: r.out ? "out" : "" },
+      h("td", {}, r.team.name), h("td", { class: "num" }, fmtRating(r.team.rating)),
+      h("td", { class: "num" }, String(r.played)), h("td", { class: "num" }, String(r.wins)),
+      h("td", { class: "num" }, String(r.losses)), h("td", {}, tag)));
+  }
+  box.replaceChildren(h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "Team"), h("th", { class: "num" }, "Rating"), h("th", { class: "num" }, "Played"),
+      h("th", { class: "num" }, "Wins"), h("th", { class: "num" }, "Losses"), h("th", {}, "Status"))),
+    body));
+}
+
+/* ---------- actions ---------- */
+function say(text) { $("msg").textContent = text || ""; }
+
+function addTeam(name, rating) {
+  name = name.trim().replace(/\s+/g, " ");
+  if (!name) return "Enter a team name.";
+  if (!Number.isFinite(rating) || rating < 0 || rating > 10000) return "Rating must be a number between 0 and 10000.";
+  if (state.teams.some((t) => t.name.toLowerCase() === name.toLowerCase())) return "A team named \u201C" + name + "\u201D already exists.";
+  sys.registerTeam(name, rating);
+  state = JSON.parse(sys.getStateJson());   // keep the duplicate check accurate when adding several in a row
+  return "";
+}
+
+function report(matchId, winnerId) {
+  sys.reportResult(matchId, winnerId);
+  refresh();
+}
+
+function onAdd(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  if (!sys || state.status !== STATUS.REGISTRATION) return;
+  const err = addTeam($("teamName").value, Number($("teamRating").value));
+  say(err);
+  if (!err) { $("teamName").value = ""; refresh(); $("teamName").focus(); }
+}
+
+function onSample() {
+  if (!sys || state.status !== STATUS.REGISTRATION) return;
+  const sample = [["Nova Esports", 1840], ["Crimson Tide", 1795], ["Pixel Phantoms", 1710], ["Iron Wolves", 1650],
+                  ["Neon Vipers", 1590], ["Quantum Five", 1525], ["Static Surge", 1470], ["Rogue Signal", 1400]];
+  for (const [n, r] of sample) addTeam(n, r);   // names already present are skipped
+  say("");
+  refresh();
+}
+
+function onStart() {
+  if (!sys) return;
+  say("");
+  sys.startTournament(Module.Format.Knockout);
+  refresh();
+}
+
+function onReset() {
+  if (!sys) return;
+  sys.delete();
+  sys = new Module.ArenaSystem();
+  say("");
+  refresh();
+}
+
+$("addForm").addEventListener("submit", onAdd);
+$("sampleBtn").onclick = onSample;
+$("startBtn").onclick = onStart;
+$("resetBtn").onclick = onReset;
+
+renderEmpty("Loading the engine…");
+boot();
+</script>
+</body>
+</html>
